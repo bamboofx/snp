@@ -1,0 +1,230 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <title>Socket.IO---Box2D</title>
+    <meta charset="utf-8">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font: 13px Helvetica, Arial;
+        }
+
+        form {
+            background: #000;
+            padding: 3px;
+            position: relative;
+            top: 80%;
+            width: 100%;
+        }
+
+        #loginForm {
+            display: block;
+            width: 20%;
+            margin: auto;
+            margin-top: 10px;
+        }
+
+        #joinForm {
+            display: none;
+            background: transparent;
+        }
+
+            #joinForm button {
+                display: block;
+                background: rgb(130, 224, 255);
+                border: none;
+                margin: auto;
+            }
+
+        form input {
+            border: 0;
+            padding: 10px;
+            width: 80%;
+            margin-right: .5%;
+        }
+
+        form button {
+            width: 18%;
+            background: rgb(130, 224, 255);
+            border: none;
+            padding: 1%;
+        }
+
+        #messages {
+            list-style-type: none;
+            margin: 0;
+            padding: 0;
+            overflow-y: scroll;
+        }
+
+            #messages li {
+                padding: 5px 10px;
+            }
+
+                #messages li.server {
+                    padding: 5px 10px;
+                    color: red;
+                }
+
+                #messages li:nth-child(odd) {
+                    background: #eee;
+                }
+    </style>
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="https://code.jquery.com/jquery-1.11.1.js"></script>
+    <script type="text/javascript" src="EntityDrawDebug.js"></script>
+</head>
+
+<body>
+    <ul id="messages"></ul>
+    <form id="chatForm" style="display:none" action="">
+        <input id="m" autocomplete="off">
+        <button id="submitBtn">Send</button>
+    </form>
+    <form id="loginForm" action="">
+        <input id="username" autocomplete="off">
+        <button id="loginBtn">Login</button>
+    </form>
+    <form id="joinForm" action="">
+        <button id="joinBtn">Join a Game</button>
+    </form>
+    <div>
+        <div style="margin:auto;width:640px;padding:2px;border:1px solid #888;text-align:left;position:absolute;top:0px;right:20px">
+            <canvas id="canvas" width="640" height="480" tabindex='1'></canvas>
+        </div>
+    </div>
+    <script>
+        // [START appengine_websockets_js]
+        var username;
+        var canvas, context,ctx;
+        var canvasOffset = {
+            x: 0,
+            y: 0
+        };
+        var canvasWidth, canvasHeight;
+        
+        var inGame = false;
+        var world = {};
+        $(document).ready(function () {
+            canvas = document.getElementById("canvas");
+            context = canvas.getContext('2d');
+            ctx = canvas.getContext('2d');
+            canvasWidth = ctx.canvas.width;
+            canvasHeight = ctx.canvas.height;
+            canvasOffset.x = canvas.width / 2;
+            canvasOffset.y = canvas.height / 2;
+            context.fillStyle = 'rgb(0,0,0)';
+            context.fillRect(0, 0, canvas.width, canvas.height);
+            $('#messages').height($(document).height() * 80 / 100);
+            $('#messages').append($('<li class="server">').text("Welcome to xxx"));
+            $('#m').focus();
+        });
+        $(function () {
+            var socket = io();//io.connect('http://localhost:8080');
+
+            $('form #submitBtn').click(function () {
+                console.log($('#m').val());
+                socket.emit('chat message', $('#m').val());
+                $('#m').val('');
+                return false;
+            });
+            $('form #loginBtn').click(function () {
+                username = $('#username').val();
+                socket.emit("add user", stringToJson("username", username));
+                $('#username').val('');
+                return false;
+            });
+            function stringToJson(name, value) {
+                var jsonString = '{"' + name + '":"' + value + '"}';
+                console.log("a: " + jsonString);
+                var jsonObj = JSON.parse(jsonString);
+
+                return jsonObj;
+            }
+            $("form #joinBtn").click(function () {
+                console.log("this clidcked");
+                socket.emit("joinAgame", username);
+                return false;
+            });
+            socket.on('chat message', function (data) {
+                console.log("reciveFromServer: " + data);
+                var newli = $('<li>');
+                newli.text(data.mess);
+                $('#messages').append(newli);
+                $('#messages').scrollTop($('#messages')[0].scrollHeight);
+            });
+            socket.on('logined', function (userNum) {
+                //console.log(userNum);
+                log("you joined to lobby");
+                $("#loginForm").hide();
+                $("#joinForm").show();
+                $("#chatForm").show();
+            });
+            socket.on('user joined', function (data) {
+                log("User " + data.username + " joined to lobby");
+            });
+            socket.on('joinedRoom', function (data) {
+                log(data.data);
+                inGame = true;
+            });
+            socket.on('userJoinedRoom', function (data) {
+                log("user " + data.username + " joined");
+            });
+            socket.on("requestUserInRoom", function () {
+                socket.emit("updateInRoom", { username: username });
+            });
+            socket.on("RoomUpdate", function (data) {
+                log(" user " + data.username + " in this room");
+            });
+            var mcanvas = {};
+            mcanvas.width = canvas.width;
+            mcanvas.height = canvas.height;
+            
+            socket.emit("requestCanvas", mcanvas);
+            socket.on("drawCanvas", function (data) {
+                
+                bodiesState = data;
+                for (var id in bodiesState) {
+                    var entity = world[id];
+                    if (entity) entity.update(bodiesState[id]);
+                }
+
+                ctx.clearRect(0, 0, canvasWidth, canvasHeight);
+                for (var id in world) {
+                    var entity = world[id];
+                    entity.draw(ctx);
+                }
+              
+                
+                
+            });
+            socket.on("initCanvas", function (initialState,scale) {
+                console.log("initCanvas");
+                SCALE = scale;
+                console.log(SCALE);
+                for (var i in initialState) {
+                    world[i] = new Entity.build(initialState[i]);                    
+                }
+            });
+            socket.on('leftRoom', function (data) {
+                log("user " + data.username + " has left the room");
+            })
+            socket.on('disconnect', function () {
+                inGame = false;
+            })
+        });
+
+        function log(message) {
+            $('#messages').append($('<li class="server">').text(message));
+        }
+        // [END appengine_websockets_js]
+    </script>
+</body>
+
+</html>
